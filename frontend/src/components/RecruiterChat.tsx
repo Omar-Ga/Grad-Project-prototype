@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, FileText, Send, User, Bot, Loader2, CheckCircle2 } from "lucide-react";
+import { Upload, Send, User, Bot, Loader2, CheckCircle2 } from "lucide-react";
 import { cn } from "../lib/utils";
 
 type Message = {

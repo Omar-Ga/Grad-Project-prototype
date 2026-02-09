@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { 
-  TrendingUp, 
   Briefcase, 
   Target, 
   Building2, 
@@ -10,8 +9,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   XCircle,
-  ExternalLink,
-  Loader2
+  ExternalLink
 } from "lucide-react";
 import { 
   Radar, 
@@ -306,7 +304,7 @@ export function AnalystDashboard() {
                   <Tooltip 
                     cursor={{ fill: 'rgba(255,255,255,0.05)' }}
                     contentStyle={{ backgroundColor: '#000', borderColor: '#333', color: '#fff' }}
-                    formatter={(value: number) => [`EGP ${value.toLocaleString()}`, 'Avg Salary']}
+                    formatter={(value: any) => [`EGP ${value?.toLocaleString()}`, 'Avg Salary']}
                   />
                   <Bar dataKey="min" stackId="a" fill="transparent" />
                   <Bar dataKey="max" stackId="a" fill="#22c55e" radius={[0, 4, 4, 0]} barSize={20} />
