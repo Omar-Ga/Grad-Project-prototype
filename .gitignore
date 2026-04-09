@@ -47,3 +47,6 @@ backend/uploads/
 # Python cache and bytecode
 __pycache__/
 *.py[cod]
+
+# Agent skill assets
+.agents/
