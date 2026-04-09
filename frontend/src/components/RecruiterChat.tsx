@@ -12,16 +12,51 @@ type Message = {
 
 type Stage = "upload" | "analyzing" | "chat";
 
+type RecruiterProfile = {
+  target_role: string | null;
+  years_experience: number | null;
+  skills: string[];
+  confirmed: boolean;
+};
+
+type SessionStartResponse = {
+  session_id: string;
+  assistant_message: string;
+  ready: boolean;
+  missing_fields: string[];
+  profile: RecruiterProfile;
+};
+
+type RecruiterMessageResponse = {
+  session_id: string;
+  assistant_message: string;
+  ready: boolean;
+  missing_fields: string[];
+  profile: RecruiterProfile;
+  latency_ms: number;
+};
+
 interface RecruiterChatProps {
-  onComplete?: () => void;
+  onComplete?: (sessionId: string) => void;
 }
+
+const MAX_PDF_SIZE_BYTES = 15 * 1024 * 1024;
+const BACKEND_API_URL = import.meta.env.VITE_BACKEND_API_URL || "http://localhost:8000";
 
 export function RecruiterChat({ onComplete }: RecruiterChatProps) {
   const [stage, setStage] = useState<Stage>("upload");
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [uploadingFileName, setUploadingFileName] = useState<string>("");
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [isReadyForInterview, setIsReadyForInterview] = useState(false);
+  const [missingFields, setMissingFields] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -31,22 +66,113 @@ export function RecruiterChat({ onComplete }: RecruiterChatProps) {
     scrollToBottom();
   }, [messages, isTyping]);
 
-  const handleFileUpload = () => {
-    setStage("analyzing");
-    // Simulate parsing
-    setTimeout(() => {
-      setStage("chat");
-      addMessage("assistant", "Hello! I've analyzed your CV. I see you're targeting a Junior Frontend Developer role. Is that correct?");
-    }, 2500);
+  const missingFieldLabels: Record<string, string> = {
+    target_role: "target role direction",
+    years_experience: "experience length",
+    skills: "technologies and tools",
+    confirmation: "final confirmation",
   };
 
-  const handleSkip = () => {
+  const startRecruiterSession = async (payload: {
+    skip_cv: boolean;
+    cv_original_name?: string;
+    cv_stored_name?: string;
+  }) => {
+    const response = await fetch(`${BACKEND_API_URL}/api/recruiter/session/start`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const responseBody = (await response.json().catch(() => null)) as SessionStartResponse | { detail?: string } | null;
+    if (!response.ok || !responseBody || !("session_id" in responseBody)) {
+      const message = responseBody && "detail" in responseBody && responseBody.detail
+        ? responseBody.detail
+        : "Could not start recruiter session. Please try again.";
+      throw new Error(message);
+    }
+
+    setMessages([]);
+    setSessionId(responseBody.session_id);
+    setIsReadyForInterview(Boolean(responseBody.ready));
+    setMissingFields(Array.isArray(responseBody.missing_fields) ? responseBody.missing_fields : []);
+    setChatError(null);
     setStage("chat");
-    addMessage("assistant", "No problem. Let's start from scratch. What is your target role (e.g., Junior Frontend Developer)?");
+    addMessage("assistant", responseBody.assistant_message);
+  };
+
+  const handleUploadClick = () => {
+    setUploadError(null);
+    setChatError(null);
+    fileInputRef.current?.click();
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0];
+    if (!selectedFile) return;
+
+    setUploadError(null);
+
+    if (!selectedFile.name.toLowerCase().endsWith(".pdf")) {
+      setUploadError("Only PDF files are allowed.");
+      event.target.value = "";
+      return;
+    }
+
+    if (selectedFile.size > MAX_PDF_SIZE_BYTES) {
+      setUploadError("Maximum file size is 15MB.");
+      event.target.value = "";
+      return;
+    }
+
+    setUploadingFileName(selectedFile.name);
+    setStage("analyzing");
+
+    try {
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+
+      const response = await fetch(`${BACKEND_API_URL}/api/cv/upload`, {
+        method: "POST",
+        body: formData,
+      });
+
+      const responseBody = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(responseBody?.detail || "Upload failed. Please try again.");
+      }
+
+      await startRecruiterSession({
+        skip_cv: false,
+        cv_original_name: responseBody?.original_name || selectedFile.name,
+        cv_stored_name: responseBody?.stored_name,
+      });
+    } catch (error) {
+      setStage("upload");
+      setUploadError(error instanceof Error ? error.message : "Upload failed. Please try again.");
+    } finally {
+      event.target.value = "";
+    }
+  };
+
+  const handleSkip = async () => {
+    setUploadError(null);
+    setChatError(null);
+    setUploadingFileName("");
+    setStage("analyzing");
+
+    try {
+      await startRecruiterSession({ skip_cv: true });
+    } catch (error) {
+      setStage("upload");
+      setUploadError(error instanceof Error ? error.message : "Could not start recruiter session.");
+    }
   };
 
   const finishRecruiter = () => {
-    if (onComplete) onComplete();
+    if (onComplete && sessionId) onComplete(sessionId);
   };
 
   const addMessage = (role: "user" | "assistant", content: string) => {
@@ -61,27 +187,41 @@ export function RecruiterChat({ onComplete }: RecruiterChatProps) {
 
   const handleSendMessage = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (!inputValue.trim()) return;
+    if (!inputValue.trim() || !sessionId || isSendingMessage) return;
 
     const userMsg = inputValue;
     setInputValue("");
     addMessage("user", userMsg);
     setIsTyping(true);
+    setIsSendingMessage(true);
+    setChatError(null);
 
-    // Simulate AI response
-    setTimeout(() => {
-      setIsTyping(false);
-      // Simple mock logic
-      if (userMsg.toLowerCase().includes("yes") || userMsg.toLowerCase().includes("correct")) {
-        addMessage("assistant", "Great. Based on your projects, you seem to have experience with React but lack exposure to testing frameworks. Let's start by assessing your React knowledge. How does the Virtual DOM work?");
-        // Add a "Start Interview" action button message or auto-trigger for demo purposes
-        setTimeout(() => {
-             addMessage("assistant", "I've prepared your technical interview session. Click below when you're ready to proceed.");
-        }, 1000);
-      } else {
-        addMessage("assistant", "Understood. Could you clarify your target role?");
+    try {
+      const response = await fetch(`${BACKEND_API_URL}/api/recruiter/session/${sessionId}/message`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message: userMsg }),
+      });
+
+      const responseBody = (await response.json().catch(() => null)) as RecruiterMessageResponse | { detail?: string } | null;
+      if (!response.ok || !responseBody || !("assistant_message" in responseBody)) {
+        const message = responseBody && "detail" in responseBody && responseBody.detail
+          ? responseBody.detail
+          : "Failed to get recruiter response. Please try again.";
+        throw new Error(message);
       }
-    }, 1500);
+
+      addMessage("assistant", responseBody.assistant_message);
+      setIsReadyForInterview(Boolean(responseBody.ready));
+      setMissingFields(Array.isArray(responseBody.missing_fields) ? responseBody.missing_fields : []);
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : "Unexpected chat error.");
+    } finally {
+      setIsTyping(false);
+      setIsSendingMessage(false);
+    }
   };
 
   return (
@@ -108,8 +248,15 @@ export function RecruiterChat({ onComplete }: RecruiterChatProps) {
                 exit={{ opacity: 0 }}
                 className="flex-1 flex flex-col items-center justify-center p-12 text-center"
               >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,application/pdf"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
                 <div 
-                  onClick={handleFileUpload}
+                  onClick={handleUploadClick}
                   className="group relative w-64 h-64 rounded-3xl border-2 border-dashed border-white/10 hover:border-primary/50 transition-colors cursor-pointer flex flex-col items-center justify-center gap-4 bg-white/5 hover:bg-white/10"
                 >
                   <div className="w-16 h-16 rounded-2xl bg-black/50 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
@@ -117,9 +264,13 @@ export function RecruiterChat({ onComplete }: RecruiterChatProps) {
                   </div>
                   <div className="space-y-1">
                     <p className="text-sm font-medium text-foreground">Upload CV / Resume</p>
-                    <p className="text-xs text-muted-foreground">PDF or DOCX (Max 5MB)</p>
+                    <p className="text-xs text-muted-foreground">PDF only (Max 15MB)</p>
                   </div>
                 </div>
+
+                {uploadError && (
+                  <p className="mt-4 text-xs text-red-400">{uploadError}</p>
+                )}
                 
                 <button
                   onClick={handleSkip}
@@ -144,9 +295,19 @@ export function RecruiterChat({ onComplete }: RecruiterChatProps) {
                 </div>
                 <h3 className="text-xl font-display font-bold mb-2">Analyzing Profile</h3>
                 <div className="space-y-2 text-center">
-                  <TypingLog text="Extracting skills..." delay={0} />
-                  <TypingLog text="Matching market data..." delay={1000} />
-                  <TypingLog text="Building career roadmap..." delay={2000} />
+                  {uploadingFileName ? (
+                    <>
+                      <TypingLog text="Uploading PDF..." delay={0} />
+                      <TypingLog text="Validating file..." delay={500} />
+                      <TypingLog text="Saving securely for later review..." delay={1000} />
+                    </>
+                  ) : (
+                    <>
+                      <TypingLog text="Creating recruiter session..." delay={0} />
+                      <TypingLog text="Preparing profile intake..." delay={500} />
+                    </>
+                  )}
+                  {uploadingFileName && <p className="text-xs text-muted-foreground">{uploadingFileName}</p>}
                 </div>
               </motion.div>
             )}
@@ -210,19 +371,30 @@ export function RecruiterChat({ onComplete }: RecruiterChatProps) {
                       </div>
                     </motion.div>
                   )}
+
+                  {chatError && (
+                    <div className="flex justify-center pt-2">
+                      <p className="text-xs text-red-400">{chatError}</p>
+                    </div>
+                  )}
                   
-                  {/* Start Interview Button for Demo */}
-                  {messages.some(m => m.content.includes("Click below when you're ready")) && (
+                  {sessionId && (
                     <motion.div
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="flex justify-center pt-4 pb-2"
+                      className="flex flex-col items-center gap-2 pt-4 pb-2"
                     >
+                      {!isReadyForInterview && (
+                        <p className="text-[11px] text-muted-foreground text-center">
+                          Conversation topics left: {missingFields.map((field) => missingFieldLabels[field] || field).join(", ")}
+                        </p>
+                      )}
                       <button
                         onClick={finishRecruiter}
-                        className="px-8 py-3 bg-primary text-primary-foreground font-bold rounded-full hover:bg-primary/90 hover:shadow-[0_0_20px_-5px_hsl(var(--primary))] transition-all flex items-center gap-2"
+                        disabled={!isReadyForInterview}
+                        className="px-8 py-3 bg-primary text-primary-foreground font-bold rounded-full hover:bg-primary/90 hover:shadow-[0_0_20px_-5px_hsl(var(--primary))] transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary disabled:hover:shadow-none"
                       >
-                        Start Technical Interview <Send size={16} />
+                        {isReadyForInterview ? "Start Technical Interview" : "Interview Locked"} <Send size={16} />
                       </button>
                     </motion.div>
                   )}
@@ -242,7 +414,7 @@ export function RecruiterChat({ onComplete }: RecruiterChatProps) {
                     />
                     <button 
                       type="submit"
-                      disabled={!inputValue.trim()}
+                      disabled={!inputValue.trim() || isSendingMessage || !sessionId}
                       className="absolute right-2 p-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
                       <Send size={16} />

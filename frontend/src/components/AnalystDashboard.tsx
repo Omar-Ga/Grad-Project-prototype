@@ -304,7 +304,7 @@ export function AnalystDashboard() {
                   <Tooltip 
                     cursor={{ fill: 'rgba(255,255,255,0.05)' }}
                     contentStyle={{ backgroundColor: '#000', borderColor: '#333', color: '#fff' }}
-                    formatter={(value: any) => [`EGP ${value?.toLocaleString()}`, 'Avg Salary']}
+                    formatter={(value: number | undefined) => [`EGP ${(value ?? 0).toLocaleString()}`, 'Avg Salary']}
                   />
                   <Bar dataKey="min" stackId="a" fill="transparent" />
                   <Bar dataKey="max" stackId="a" fill="#22c55e" radius={[0, 4, 4, 0]} barSize={20} />

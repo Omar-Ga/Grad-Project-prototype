@@ -14,6 +14,7 @@ function App() {
     if (stage === "analyst") return "analyst";
     return "recruiter";
   });
+  const [recruiterSessionId, setRecruiterSessionId] = useState<string | null>(null);
 
   // Update URL when stage changes (optional, but good for UX)
   useEffect(() => {
@@ -32,13 +33,35 @@ function App() {
         {currentStage === "recruiter" && <Hero />}
         
         <StageProgress currentStage={currentStage} />
+
+        {currentStage === "recruiter" && (
+          <div className="w-full max-w-4xl px-6 mt-2 mb-2 flex justify-end">
+            <button
+              onClick={() => {
+                setRecruiterSessionId(null);
+                setCurrentStage("interviewer");
+              }}
+              className="rounded-md border border-amber-300/40 bg-amber-300/10 px-3 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-300/20 transition-colors"
+            >
+              Test Shortcut: Go to Agent 2
+            </button>
+          </div>
+        )}
         
         {currentStage === "recruiter" && (
-          <RecruiterChat onComplete={() => setCurrentStage("interviewer")} />
+          <RecruiterChat
+            onComplete={(sessionId) => {
+              setRecruiterSessionId(sessionId);
+              setCurrentStage("interviewer");
+            }}
+          />
         )}
         
         {currentStage === "interviewer" && (
-          <TechnicalInterview onComplete={() => setCurrentStage("analyst")} />
+          <TechnicalInterview
+            recruiterSessionId={recruiterSessionId}
+            onComplete={() => setCurrentStage("analyst")}
+          />
         )}
 
         {currentStage === "analyst" && (

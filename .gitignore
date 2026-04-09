@@ -39,3 +39,11 @@ Desktop.ini
 
 # Vite
 *.local
+
+# Backend runtime files
+backend/uploads/
+*.db
+
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
