@@ -1,0 +1,24 @@
+{
+  "handoff_specification": {
+    "version": "1.0",
+    "bridge_identifier": "recruiter_session_id",
+    "persistence_layer": "SQLite (app.db)",
+    "flow": {
+      "source": {
+        "module": "app.api.recruiter",
+        "action": "update_recruiter_session",
+        "fields_to_export": ["target_role", "years_experience", "skills_json"]
+      },
+      "destination": {
+        "module": "app.api.interview",
+        "action": "fetch_recruiter_profile_snapshot",
+        "fields_to_import": ["role", "experience", "skills"]
+      }
+    },
+    "ai_context_injection": {
+      "target_service": "app.services.interview_ai",
+      "function": "_profile_context",
+      "description": "Transforms database row into natural language for Gemini Agent 2"
+    }
+  }
+}
